@@ -4,6 +4,19 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+    
+        {
+            "cwd": "${workspaceFolder}/frontend",
+            "command": "yarn install",
+            "name": "Run yarn install",
+            "type": "node-terminal"
+        },
+        {
+            "cwd": "${workspaceFolder}/frontend",
+            "command": "yarn lint",
+            "name": "Run yarn lint",
+            "type": "node-terminal"
+        },
         {
             "cwd": "${workspaceFolder}/frontend",
             "command": "yarn serve",
