@@ -1,22 +1,39 @@
 <template>
   <div class="about">
-    <h1>This is an about page</h1>
-    {{ hej }}
     <video playsinline autoplay ref="video" @click="buttonClick"></video>
     <div>
       <canvas ref="canvas" />
     </div>
+    <div><button @click="restartLoop">Kör</button></div>
   </div>
 </template>
 
 <script lang="ts">
 import { Vue } from "vue-class-component";
 
+enum Color {
+  r,
+  g,
+  b
+};
+type Position = {
+  x: number;
+  y: number;
+};
+type ColorPosition = {
+  pos: Position;
+  color: Color;
+};
+
 export default class About extends Vue {
   loopFrame = 0;
-  get hej(): string {
-    return "asd";
-  }
+  numberLeds = 256;
+  iterations: { [id: number]: ColorPosition[] } = {};
+  positionCandidates: { [x: number]: { [y: number]: { [iteration: number]: Color }}} = {};
+  positions: { [index: number] : Position } = {};
+  colorsForPixels: Color[][] = [];
+  lastIteration = -1;
+  startTime = Date.now();
   get video(): HTMLVideoElement {
     return this.$refs["video"] as HTMLVideoElement;
   }
@@ -26,6 +43,11 @@ export default class About extends Vue {
   get ctx(): CanvasRenderingContext2D | null {
     return this.canvas.getContext("2d");
   }
+  created(): void {
+    for (let i = 0; i < this.getRequiredIterations(this.numberLeds); i++) {
+      this.colorsForPixels.push(this.getColorsForPixels(this.numberLeds, i));
+    }
+  }
   mounted(): void {
     this.canvas.width = this.video.videoWidth;
     this.canvas.height = this.video.videoHeight;
@@ -33,7 +55,10 @@ export default class About extends Vue {
       .getUserMedia(this.constraints)
       .then(this.handleSuccess)
       .catch(this.handleError);
-    this.startLoop();
+
+    ((window as unknown) as {
+      getColorsForPixels: (a: number, b: number) => Color[];
+    }).getColorsForPixels = this.getColorsForPixels;
   }
   onBeforeDestroy(): void {
     cancelAnimationFrame(this.loopFrame);
@@ -60,7 +85,7 @@ export default class About extends Vue {
   }
 
   handleError(error: Error): void {
-    console.log(
+    console.error(
       "navigator.MediaDevices.getUserMedia error: ",
       error.message,
       error.name
@@ -68,10 +93,12 @@ export default class About extends Vue {
   }
 
   loop(): void {
-    this.loopFrame = requestAnimationFrame(this.loop);
     if (this.ctx == null) {
       return;
     }
+
+    const t1 = performance.now();
+
     const video = this.video;
 
     //ctx.clearRect(0, 0, width, height);
@@ -97,95 +124,234 @@ export default class About extends Vue {
     // ctx.rotate(rotation);
     // ctx.translate( -centerX, -centerY );
     this.ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+
+    const requiredIterations = this.getRequiredIterations(this.numberLeds);
+    const iteration = Math.round((Date.now()-this.startTime) / 100) % requiredIterations;
+    const leds = this.colorsForPixels[iteration];
+    leds.forEach((color, index) => {
+      if (this.ctx) {
+        this.ctx.fillStyle = this.hexFromColor(color);
+        this.ctx.fillRect((index % 32) * 19 + 15, 10 + 50 * Math.floor(index/32), 4, 4);
+      }
+    });
+
     const imageData = this.ctx.getImageData(
       0,
       0,
       video.videoWidth,
       video.videoHeight
     );
-    const t1 = performance.now();
-    let redPixels = this.getRedPixels(imageData);
-    const t2 = performance.now();
-    redPixels = this.getRedPixels2(imageData);
-    const t3 = performance.now();
-    if (Math.random() > 0.99) {
-      console.log(t2 - t1, t3 - t2);
+    if(!this.filledIterations){
+      this.iterations[iteration] = this.findPixels(imageData);
+    }
+    /*
+    const lastPixels = this.iterations[
+      (requiredIterations + iteration - 1) % requiredIterations
+    ];
+    lastPixels?.forEach(element => {
+      if (this.ctx) {
+        this.ctx.fillStyle = this.hexFromColor(element.color);
+        this.ctx?.fillRect(element.pos.x, element.pos.y + 20, 2, 2);
+      }
+    });*/
+    /*
+    this.ctx.fillText(
+      (iteration).toString(),
+      this.numberLeds * 15 + 20,
+      20
+    );*/
+
+    /*if (lastPixels && iteration != this.lastIteration) {
+      this.iterations[iteration] = this.iterations[iteration].filter(i =>
+        lastPixels.some(j => i.pos.x == j.pos.x && i.pos.y == j.pos.y)
+      );*/
+      /*pixelsWithColorInEveryIteration.forEach(element => {
+        if (this.ctx) {
+          this.ctx.fillStyle = this.hexFromColor(element.color);
+          this.ctx?.fillRect(element.x, element.y + 30, 1, 1);
+        }
+      });*/
+    //}
+
+    /*this.iterations[iteration].forEach(element => {
+      if (this.ctx) {
+        this.ctx.fillStyle = this.hexFromColor(element.color);
+        this.ctx?.fillRect(element.pos.x, element.pos.y + 10, 2, 2);
+      }
+    });*/
+
+    this.ctx.restore();
+    this.lastIteration = iteration;
+
+    if(this.filledIterations) {
+      this.loopFrame = 0;
+      this.calculate();
+    } else {
+      this.loopFrame = requestAnimationFrame(this.loop);
     }
 
-    this.ctx.fillStyle = "#0F0";
-    redPixels.forEach(element => {
-      this.ctx?.fillRect(element[0], element[1], 1, 1);
-    });
-    this.ctx.restore();
+    this.ctx.fillStyle = "#FA6607";
+    Object.keys(this.positions).forEach(pixel => {
+      const pos = this.positions[parseInt(pixel)];
+      this.ctx?.fillText(pixel, pos.x, pos.y);
+    })
+
+    const t2 = performance.now();
+    if (Math.random() > 0.99) {
+      console.log("loop took:", t2 - t1);
+    }
   }
 
   startLoop(): void {
     this.loopFrame = this.loopFrame || requestAnimationFrame(this.loop);
   }
+  restartLoop(): void {
+    cancelAnimationFrame(this.loopFrame);
+    this.loopFrame = 0;
+    this.iterations = {};
+    this.lastIteration = -1;
+    this.startTime = Date.now();
+    this.positions = {};
+    this.startLoop();
+  }
 
-  getRedPixels(imageData: ImageData): number[][] {
+  findPixels(imageData: ImageData): ColorPosition[] {
+    const everyNthPixel = 1;
     const data = imageData.data;
-    const list = [];
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i] > 180 && data[i + 1] < 160 && data[i + 2] < 160) {
-        const n = i / 4;
-        const x = n % imageData.width;
-        const y = n / imageData.width;
-        list.push([x, y]);
+    const lst: ColorPosition[] = [];
+    for (let i = 0; i < data.length; i += 4 * everyNthPixel) {
+      const n = i / 4;
+      const x = n % imageData.width;
+      const y = Math.floor(n / imageData.width);
+      if (Math.round(y % everyNthPixel) != 0) {
+        //continue;
+      }
+      let color: Color | null = null;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const lowerThresh = 160;
+      const higherThresh = 210;
+      if (r > higherThresh && b < lowerThresh && g < lowerThresh) {
+        color = Color.r;
+      } else if (r < lowerThresh && b > higherThresh && g < lowerThresh) {
+        color = Color.b;
+      } else if (r < lowerThresh && b < lowerThresh && g > higherThresh) {
+        color = Color.g;
+      }
+      if (color != null) {
+        lst.push({ pos: { x: x, y: y }, color: color });
       }
     }
-    return list;
+    return lst;
   }
 
-  getRedPixels2(imageData: ImageData): number[][] {
-    const rgbData: {r: number, g: number, b: number}[] = []
-    
-    for (let i = 0; i < imageData.data.length; i += 4) {
-      rgbData.unshift({r: imageData.data[i], g: imageData.data[i+1], b: imageData.data[i+2]});
-    }
-    const hsvData: { h: number; s: number; v: number }[] = rgbData.map(x => this.rgb2hsv(x.r,x.g,x.b));
-    return [];
-  }
-  rgb2hsv(
-    r: number,
-    g: number,
-    b: number
-  ): { h: number; s: number; v: number } {
-    const rabs = r / 255;
-    const gabs = g / 255;
-    const babs = b / 255;
-    const v = Math.max(rabs, gabs, babs);
-    const diff = v - Math.min(rabs, gabs, babs);
-    const diffc = (c: number) => (v - c) / 6 / diff + 1 / 2;
-    const percentRoundFn = (num: number) => Math.round(num * 100) / 100;
-    let h = 0,
-      s: number;
-    if (diff == 0) {
-      h = s = 0;
+  getColorsForPixels(numberLeds: number, iteration: number): Color[] {
+    const requiredIterations = this.getRequiredIterations(numberLeds);
+    iteration %= requiredIterations;
+    const array: Color[] = [];
+    if (iteration == 0) {
+      const odd = !!(requiredIterations % 2);
+      const divisible3 = !(requiredIterations % 3);
+      let i = 0;
+      for (; i < numberLeds / 2; i++) {
+        array.push(divisible3 ? Color.r : odd ? Color.b : Color.g);
+      }
+      for (; i < numberLeds; i++) {
+        array.push(divisible3 ? Color.b : odd ? Color.g : Color.r);
+      }
     } else {
-      s = diff / v;
-      const rr = diffc(rabs);
-      const gg = diffc(gabs);
-      const bb = diffc(babs);
+      const subArray = this.getColorsForPixels(
+        Math.ceil(numberLeds / 2),
+        iteration - 1
+      );
+      subArray.forEach(c => array.push(c));
+      subArray.forEach(c => array.push(c));
+    }
+    return array.slice(0, numberLeds);
+  }
 
-      if (rabs === v) {
-        h = bb - gg;
-      } else if (gabs === v) {
-        h = 1 / 3 + rr - bb;
-      } else if (babs === v) {
-        h = 2 / 3 + gg - rr;
-      }
-      if (h < 0) {
-        h += 1;
-      } else if (h > 1) {
-        h -= 1;
+  getRequiredIterations(number: number): number {
+    let x = 1;
+    for (let i = 1; i < 10; i++) {
+      x *= 2
+      if (x >= number) {
+        return i;
       }
     }
-    return {
-      h: Math.round(h * 360),
-      s: percentRoundFn(s * 100),
-      v: percentRoundFn(v * 100)
-    };
+    return 11;
+  }
+
+  hexFromColor(color: Color): string {
+    switch (color) {
+      case Color.r:
+        return "#F00";
+      case Color.g:
+        return "#0F0";
+      case Color.b:
+        return "#00F";
+    }
+  }
+
+  get filledIterations(): boolean {
+    return this.iterationIndexes.every(i => this.iterations[i]);
+  }
+  get iterationIndexes(): number[] {
+    const retlist: number[] = [];
+    for (let i = 0; i < this.getRequiredIterations(this.numberLeds); i++) {
+      retlist.push(i);
+    }
+    return retlist;
+  }
+
+  calculate(): void {
+    const tStart = performance.now();
+
+    const iterationIndexes = Object.keys(this.iterations);
+    iterationIndexes.forEach(key => {
+      const iteration = parseInt(key);
+      this.iterations[iteration].forEach(el => {
+        this.setPositionCandidate(el.pos.x, el.pos.y, iteration, el.color);
+      });
+    });
+
+    const foundPixels: number[] = [];
+    Object.keys(this.positionCandidates).forEach(xKey => {
+      const x = parseInt(xKey);
+      Object.keys(this.positionCandidates[x]).forEach(yKey => {
+        const y = parseInt(yKey);
+        const colors = Object.values(this.positionCandidates[x][y]);
+        if(colors.length == iterationIndexes.length) {
+          for(let pixel = 0; pixel < this.numberLeds; pixel++) {
+            if(foundPixels.includes(pixel)) {
+              continue;
+            }
+            const pixelColors = this.colorsForPixels.map(c => c[pixel]);
+            if(colors.toString() == pixelColors.toString()) {
+              this.positions[pixel] = { x: x, y: y};
+              foundPixels.push(pixel);
+            }
+          };
+        }
+      })
+    })
+    if(Object.keys(this.positions).length !== this.numberLeds) {
+      console.warn("didn't find every led");
+    }
+    const tEnd = performance.now();
+    console.log("calculation took", tEnd - tStart);
+  }
+  setPositionCandidate(x: number, y: number, i: number, color: Color) {
+    if(!this.positionCandidates) {
+      this.positionCandidates = {};
+    }
+    if(!this.positionCandidates[x]) {
+      this.positionCandidates[x] = {};
+    }
+    if(!this.positionCandidates[x][y]) {
+      this.positionCandidates[x][y] = {};
+    }
+    this.positionCandidates[x][y][i] = color;
   }
 }
 </script>
