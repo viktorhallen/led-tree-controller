@@ -3,8 +3,17 @@
     <video playsinline autoplay ref="video" @click="buttonClick"></video>
     <div>
       <canvas ref="canvas" />
+      <spinner-overlay v-if="calculating || true" />
     </div>
-    <div><button @click="restartLoop">Kör</button></div>
+    <div>
+      <button @click="restartLoop">Kör</button
+      ><label>Antal led: <input type="number" v-model="numberLeds"/></label>
+    </div>
+    <div>
+      <div v-for="(led, i) in positions" :key="led">
+        Led {{ led }} {{ i }}: {{ positions[led] }}
+      </div>
+    </div>
   </div>
 </template>
 
@@ -15,7 +24,7 @@ enum Color {
   r,
   g,
   b
-};
+}
 type Position = {
   x: number;
   y: number;
@@ -29,11 +38,16 @@ export default class About extends Vue {
   loopFrame = 0;
   numberLeds = 256;
   iterations: { [id: number]: ColorPosition[] } = {};
-  positionCandidates: { [x: number]: { [y: number]: { [iteration: number]: Color }}} = {};
-  positions: { [index: number] : Position } = {};
+  positionCandidates: {
+    [x: number]: { [y: number]: { [iteration: number]: Color } };
+  } = {};
+  positions: { [index: number]: Position } = {};
   colorsForPixels: Color[][] = [];
   lastIteration = -1;
   startTime = Date.now();
+
+  calculating = false;
+
   get video(): HTMLVideoElement {
     return this.$refs["video"] as HTMLVideoElement;
   }
@@ -43,11 +57,7 @@ export default class About extends Vue {
   get ctx(): CanvasRenderingContext2D | null {
     return this.canvas.getContext("2d");
   }
-  created(): void {
-    for (let i = 0; i < this.getRequiredIterations(this.numberLeds); i++) {
-      this.colorsForPixels.push(this.getColorsForPixels(this.numberLeds, i));
-    }
-  }
+
   mounted(): void {
     this.canvas.width = this.video.videoWidth;
     this.canvas.height = this.video.videoHeight;
@@ -126,12 +136,18 @@ export default class About extends Vue {
     this.ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
 
     const requiredIterations = this.getRequiredIterations(this.numberLeds);
-    const iteration = Math.round((Date.now()-this.startTime) / 100) % requiredIterations;
+    const iteration =
+      Math.round((Date.now() - this.startTime) / 100) % requiredIterations;
     const leds = this.colorsForPixels[iteration];
     leds.forEach((color, index) => {
       if (this.ctx) {
         this.ctx.fillStyle = this.hexFromColor(color);
-        this.ctx.fillRect((index % 32) * 19 + 15, 10 + 50 * Math.floor(index/32), 4, 4);
+        this.ctx.fillRect(
+          (index % 32) * 19 + 15,
+          10 + 50 * Math.floor(index / 32),
+          4,
+          4
+        );
       }
     });
 
@@ -141,7 +157,7 @@ export default class About extends Vue {
       video.videoWidth,
       video.videoHeight
     );
-    if(!this.filledIterations){
+    if (!this.filledIterations) {
       this.iterations[iteration] = this.findPixels(imageData);
     }
     /*
@@ -165,7 +181,7 @@ export default class About extends Vue {
       this.iterations[iteration] = this.iterations[iteration].filter(i =>
         lastPixels.some(j => i.pos.x == j.pos.x && i.pos.y == j.pos.y)
       );*/
-      /*pixelsWithColorInEveryIteration.forEach(element => {
+    /*pixelsWithColorInEveryIteration.forEach(element => {
         if (this.ctx) {
           this.ctx.fillStyle = this.hexFromColor(element.color);
           this.ctx?.fillRect(element.x, element.y + 30, 1, 1);
@@ -183,7 +199,7 @@ export default class About extends Vue {
     this.ctx.restore();
     this.lastIteration = iteration;
 
-    if(this.filledIterations) {
+    if (this.filledIterations) {
       this.loopFrame = 0;
       this.calculate();
     } else {
@@ -194,7 +210,7 @@ export default class About extends Vue {
     Object.keys(this.positions).forEach(pixel => {
       const pos = this.positions[parseInt(pixel)];
       this.ctx?.fillText(pixel, pos.x, pos.y);
-    })
+    });
 
     const t2 = performance.now();
     if (Math.random() > 0.99) {
@@ -212,6 +228,10 @@ export default class About extends Vue {
     this.lastIteration = -1;
     this.startTime = Date.now();
     this.positions = {};
+    this.colorsForPixels = [];
+    for (let i = 0; i < this.getRequiredIterations(this.numberLeds); i++) {
+      this.colorsForPixels.push(this.getColorsForPixels(this.numberLeds, i));
+    }
     this.startLoop();
   }
 
@@ -274,7 +294,7 @@ export default class About extends Vue {
   getRequiredIterations(number: number): number {
     let x = 1;
     for (let i = 1; i < 10; i++) {
-      x *= 2
+      x *= 2;
       if (x >= number) {
         return i;
       }
@@ -305,6 +325,7 @@ export default class About extends Vue {
   }
 
   calculate(): void {
+    this.calculating = true;
     const tStart = performance.now();
 
     const iterationIndexes = Object.keys(this.iterations);
@@ -321,34 +342,35 @@ export default class About extends Vue {
       Object.keys(this.positionCandidates[x]).forEach(yKey => {
         const y = parseInt(yKey);
         const colors = Object.values(this.positionCandidates[x][y]);
-        if(colors.length == iterationIndexes.length) {
-          for(let pixel = 0; pixel < this.numberLeds; pixel++) {
-            if(foundPixels.includes(pixel)) {
+        if (colors.length == iterationIndexes.length) {
+          for (let pixel = 0; pixel < this.numberLeds; pixel++) {
+            if (foundPixels.includes(pixel)) {
               continue;
             }
             const pixelColors = this.colorsForPixels.map(c => c[pixel]);
-            if(colors.toString() == pixelColors.toString()) {
-              this.positions[pixel] = { x: x, y: y};
+            if (colors.toString() == pixelColors.toString()) {
+              this.positions[pixel] = { x: x, y: y };
               foundPixels.push(pixel);
             }
-          };
+          }
         }
-      })
-    })
-    if(Object.keys(this.positions).length !== this.numberLeds) {
+      });
+    });
+    if (Object.keys(this.positions).length !== this.numberLeds) {
       console.warn("didn't find every led");
     }
     const tEnd = performance.now();
     console.log("calculation took", tEnd - tStart);
+    this.calculating = false;
   }
   setPositionCandidate(x: number, y: number, i: number, color: Color) {
-    if(!this.positionCandidates) {
+    if (!this.positionCandidates) {
       this.positionCandidates = {};
     }
-    if(!this.positionCandidates[x]) {
+    if (!this.positionCandidates[x]) {
       this.positionCandidates[x] = {};
     }
-    if(!this.positionCandidates[x][y]) {
+    if (!this.positionCandidates[x][y]) {
       this.positionCandidates[x][y] = {};
     }
     this.positionCandidates[x][y][i] = color;
